@@ -37,5 +37,7 @@ export class SpeechService {
 				}
 			}
 		)
+
+    return response.data.text
 	}
 }
