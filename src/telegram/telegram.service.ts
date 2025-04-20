@@ -38,9 +38,7 @@ export class TelegramService {
 				async () => {
 					if (percent < 90) {
 						percent += 5
-						console.log('qwfqwfqw')
 						if (ctx?.chat?.id && progressMessageId) {
-							console.log('1214124124')
 							await ctx.api.editMessageText(
 								ctx?.chat?.id,
 								progressMessageId,
@@ -49,12 +47,22 @@ export class TelegramService {
 						}
 					}
 				},
-				duration > 300 ? 3000 : 2000
+				duration < 300 ? 500 : 2000
 			)
 
 			const transcription = file?.file_path ? await this.speechService.transcribeAudio(
 				file.file_path
 			) : null
+
+      
+      transcription && await ctx.reply(transcription).then(() => {
+        
+      }).finally(() => {
+        if (progressMessageId && ctx?.chat?.id) {
+          ctx.api.deleteMessage(ctx.chat.id, progressMessageId)
+        }
+        clearInterval(interval)
+      })
 
       console.log('transcription:', transcription)
 
