@@ -1,10 +1,20 @@
+import { InjectBot } from '@grammyjs/nestjs'
 import { Injectable } from '@nestjs/common'
-import { Context } from 'grammy'
+import { Bot, Context } from 'grammy'
+import { ConfigService } from '@nestjs/config'
+import { SpeechService } from '../services/speech.service'
 
 @Injectable()
 export class TelegramService {
-	constructor() {
-		// Initialize any necessary properties or services here
+	private readonly botToken: string | undefined
+
+	constructor(
+		@InjectBot()
+		private readonly bot: Bot<Context>,
+		private readonly configService: ConfigService,
+		private readonly speechService: SpeechService
+	) {
+		this.botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN')
 	}
 
 	async processVoiceMessage(ctx: Context): Promise<void> {
@@ -41,6 +51,12 @@ export class TelegramService {
 				},
 				duration > 300 ? 3000 : 2000
 			)
+
+			const transcription = file?.file_path ? await this.speechService.transcribeAudio(
+				file.file_path
+			) : null
+
+      console.log('transcription:', transcription)
 
 			// clearInterval(interval)
 		} catch (error) {
