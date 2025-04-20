@@ -5,6 +5,9 @@ import { ConfigService } from '@nestjs/config'
 import { SpeechService } from '../services/speech.service'
 import { AiService } from 'src/services/ai.service'
 
+const showTimeCodesFromSec = 120
+const notShowTextFromSec = 600
+
 @Injectable()
 export class TelegramService {
 	private readonly botToken: string | undefined
@@ -21,6 +24,7 @@ export class TelegramService {
 
 	async processVoiceMessage(ctx: Context): Promise<void> {
 		const voiceMessage = ctx?.msg?.voice
+		const chatId = ctx?.chat?.id
 		const duration = voiceMessage?.duration || 0
 
 		let progressMessageId: number | undefined
@@ -36,47 +40,55 @@ export class TelegramService {
 			const progressMessage = await ctx.reply(this.renderProgress(percent))
 			progressMessageId = progressMessage.message_id
 
-			interval = setInterval(
-				async () => {
-					if (percent < 90) {
-						percent += 5
-						if (ctx?.chat?.id && progressMessageId) {
+			if (chatId && progressMessageId) {
+				interval = setInterval(
+					async () => {
+						if (percent < 90) {
+							percent += 5
 							await this.updateProgress(
 								ctx.api,
-								ctx.chat.id,
+								chatId,
+								// @ts-ignore
 								progressMessageId,
 								percent
 							)
 						}
+					},
+					duration < 120 ? 700 : 2000
+				)
+
+				// Get the text from the voice message
+				const transcription = file?.file_path
+					? await this.speechService.transcribeAudio(file.file_path)
+					: ''
+
+				// Show the full text only if the audio is less than 3 minutes
+				if (duration < notShowTextFromSec) {
+					await ctx.reply(transcription)
+
+					// Show 100% progress here because timestamps are not needed
+					if (duration <= showTimeCodesFromSec) {
+						// Show 100% progress
+						this.updateProgressToFull(ctx.api, chatId, progressMessageId)
 					}
-				},
-				duration < 120 ? 1000 : 2000
-			)
+				}
 
-			const transcription = file?.file_path
-				? await this.speechService.transcribeAudio(file.file_path)
-				: ''
-
-			const { cost, timestamps } = await this.aiService.generateTimestamps(
-				transcription,
-				duration
-			)
+				if (duration > showTimeCodesFromSec) {
+					// Get time from the text with time-codes and description of
+					// the main idea of each segment
+					const { cost, timestamps } = await this.aiService.generateTimestamps(
+						transcription,
+						duration
+					)
+					// Show 100% progress
+					this.updateProgressToFull(ctx.api, chatId, progressMessageId)
+					// Show the time-codes
+					await ctx.reply(`⏳ Time-codes:\n\n${timestamps}`)
+					await ctx.reply(cost)
+				}
+			}
 
 			clearInterval(interval)
-
-			transcription && (await ctx.reply(transcription))
-
-			if (ctx?.chat?.id) {
-				await this.updateProgress(
-					ctx.api,
-					ctx?.chat?.id,
-					progressMessageId,
-					100
-				)
-				await ctx.reply(`⏳ Time-codes:\n\n${timestamps}`)
-				await ctx.reply(cost)
-				ctx.api.deleteMessage(ctx.chat.id, progressMessageId)
-			}
 		} catch (error) {
 			clearInterval(interval)
 			console.error('Error processing voice message:', error.message)
@@ -88,6 +100,17 @@ export class TelegramService {
 				clearInterval(interval)
 			}
 		}
+	}
+
+	private async updateProgressToFull(
+		api: Api,
+		chatId: number,
+		messageId: number
+	) {
+		this.updateProgress(api, chatId, messageId, 100)
+		setTimeout(async () => {
+			await api.deleteMessage(chatId, messageId)
+		}, 1000)
 	}
 
 	private async updateProgress(
