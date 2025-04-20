@@ -1,8 +1,9 @@
 import { InjectBot } from '@grammyjs/nestjs'
 import { Injectable } from '@nestjs/common'
-import { Bot, Context } from 'grammy'
+import { Api, Bot, Context } from 'grammy'
 import { ConfigService } from '@nestjs/config'
 import { SpeechService } from '../services/speech.service'
+import { AiService } from 'src/services/ai.service'
 
 @Injectable()
 export class TelegramService {
@@ -12,7 +13,8 @@ export class TelegramService {
 		@InjectBot()
 		private readonly bot: Bot<Context>,
 		private readonly configService: ConfigService,
-		private readonly speechService: SpeechService
+		private readonly speechService: SpeechService,
+		private readonly aiService: AiService
 	) {
 		this.botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN')
 	}
@@ -39,34 +41,42 @@ export class TelegramService {
 					if (percent < 90) {
 						percent += 5
 						if (ctx?.chat?.id && progressMessageId) {
-							await ctx.api.editMessageText(
-								ctx?.chat?.id,
+							await this.updateProgress(
+								ctx.api,
+								ctx.chat.id,
 								progressMessageId,
-								this.renderProgress(percent)
+								percent
 							)
 						}
 					}
 				},
-				duration < 300 ? 500 : 2000
+				duration < 120 ? 1000 : 2000
 			)
 
-			const transcription = file?.file_path ? await this.speechService.transcribeAudio(
-				file.file_path
-			) : null
+			const transcription = file?.file_path
+				? await this.speechService.transcribeAudio(file.file_path)
+				: ''
 
-      
-      transcription && await ctx.reply(transcription).then(() => {
-        
-      }).finally(() => {
-        if (progressMessageId && ctx?.chat?.id) {
-          ctx.api.deleteMessage(ctx.chat.id, progressMessageId)
-        }
-        clearInterval(interval)
-      })
+			const { cost, timestamps } = await this.aiService.generateTimestamps(
+				transcription,
+				duration
+			)
 
-      console.log('transcription:', transcription)
+			clearInterval(interval)
 
-			// clearInterval(interval)
+			transcription && (await ctx.reply(transcription))
+
+			if (ctx?.chat?.id) {
+				await this.updateProgress(
+					ctx.api,
+					ctx?.chat?.id,
+					progressMessageId,
+					100
+				)
+				await ctx.reply(`⏳ Time-codes:\n\n${timestamps}`)
+				await ctx.reply(cost)
+				ctx.api.deleteMessage(ctx.chat.id, progressMessageId)
+			}
 		} catch (error) {
 			clearInterval(interval)
 			console.error('Error processing voice message:', error.message)
@@ -75,19 +85,24 @@ export class TelegramService {
 			)
 		} finally {
 			if (interval) {
-				// clearInterval(interval)
+				clearInterval(interval)
 			}
 		}
+	}
 
-		console.log('duration:', duration)
+	private async updateProgress(
+		api: Api,
+		chatId: number,
+		messageId: number,
+		percent: number
+	) {
+		await api.editMessageText(chatId, messageId, this.renderProgress(percent))
 	}
 
 	private renderProgress(percent: number): string {
 		const totalBlocks = 10
 		const filledBlockChar = '#'
 		const emptyBlockChar = '.'
-
-		console.log('percent:', percent)
 
 		const filledBlocks = Math.max(1, Math.floor((percent / 100) * totalBlocks))
 

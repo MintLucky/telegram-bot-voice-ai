@@ -4,6 +4,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TelegramService } from "./telegram.service";
 import { SpeechService } from "../services/speech.service";
+import { AiService } from "src/services/ai.service";
 
 
 @Module({
@@ -18,7 +19,7 @@ import { SpeechService } from "../services/speech.service";
       })
     }),
   ],
-  providers: [TelegramUpdate, TelegramService, SpeechService],
+  providers: [TelegramUpdate, TelegramService, SpeechService, AiService],
 })
 
 export class TelegramModule {}
